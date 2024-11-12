@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "dev.w0fv1"
-version = "0.0.1"
+version = "0.0.3"
 java.sourceCompatibility = JavaVersion.VERSION_21
 
 repositories {
@@ -32,15 +32,14 @@ tasks.test {
 
 
 //import org.gradle.plugins.signing.Sign
-
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {
             from(components["java"])
 
             pom {
-                name.set("Hello Spring Lib")
-                description.set("A Spring Boot starter that says hello.")
+                name.set("fmapper Library")
+                description.set("A library for mapping fields and entities.")
                 url.set("https://github.com/w0fv1/fmapper")
 
                 licenses {
@@ -75,6 +74,7 @@ publishing {
         }
     }
 }
+
 
 signing {
     // 如果在构建时手动输入密码，可以使用 `useGpgCmd()` 启用命令行 GPG

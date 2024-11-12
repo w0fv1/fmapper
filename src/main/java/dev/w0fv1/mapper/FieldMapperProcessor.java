@@ -7,6 +7,7 @@ import jakarta.persistence.Entity;
 import javax.annotation.processing.*;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.*;
+import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
@@ -18,7 +19,7 @@ import java.util.Set;
 
 @AutoService(Processor.class)
 @SupportedAnnotationTypes("jakarta.persistence.Entity")
-@SupportedSourceVersion(SourceVersion.RELEASE_17)
+@SupportedSourceVersion(SourceVersion.RELEASE_21)
 public class FieldMapperProcessor extends AbstractProcessor {
 
     private Messager messager;
@@ -63,12 +64,21 @@ public class FieldMapperProcessor extends AbstractProcessor {
 
             for (VariableElement field : fields) {
                 String fieldName = field.getSimpleName().toString();
-                String fieldType = field.asType().toString();
                 String capitalizedFieldName = capitalize(fieldName);
                 String mapperInnerClassName = capitalizedFieldName + "FieldMapper";
 
-                // 检查是否为 List 类型
-                boolean isListType = isList(field);
+                TypeName fieldTypeName;
+
+                // 检查字段是否为带有泛型的 List 类型
+                if (isList(field)) {
+                    DeclaredType declaredType = (DeclaredType) field.asType();
+                    // 获取泛型参数，例如 List<String> 中的 String
+                    TypeMirror genericType = declaredType.getTypeArguments().get(0);
+                    fieldTypeName = ParameterizedTypeName.get(ClassName.get(List.class), TypeName.get(genericType));
+                } else {
+                    // 对于非 List 类型，直接使用 ClassName.bestGuess
+                    fieldTypeName = ClassName.bestGuess(field.asType().toString());
+                }
 
                 // 使用 JavaPoet 构建嵌套类
                 TypeSpec.Builder innerClassBuilder = TypeSpec.classBuilder(mapperInnerClassName)
@@ -76,7 +86,7 @@ public class FieldMapperProcessor extends AbstractProcessor {
                         .addSuperinterface(ParameterizedTypeName.get(
                                 ClassName.get("dev.w0fv1.mapper", "Mapper"),
                                 ClassName.get(packageName, className),
-                                ClassName.bestGuess(fieldType)
+                                fieldTypeName
                         ));
 
                 // 构建 accept 方法
@@ -84,9 +94,9 @@ public class FieldMapperProcessor extends AbstractProcessor {
                         .addAnnotation(Override.class)
                         .addModifiers(Modifier.PUBLIC)
                         .addParameter(ClassName.get(packageName, className), "instance")
-                        .addParameter(ClassName.bestGuess(fieldType), fieldName);
+                        .addParameter(fieldTypeName, fieldName);
 
-                if (isListType) {
+                if (isList(field)) {
                     acceptMethodBuilder.addStatement("if (instance.get$L() != null) {\n" +
                             "    instance.get$L().clear();\n" +
                             "    instance.get$L().addAll($L);\n" +
@@ -114,8 +124,20 @@ public class FieldMapperProcessor extends AbstractProcessor {
     }
 
     private boolean isList(VariableElement field) {
+        // 获取 `java.util.List` 的类型
         TypeMirror listType = elementUtils.getTypeElement("java.util.List").asType();
-        return typeUtils.isAssignable(typeUtils.erasure(field.asType()), typeUtils.erasure(listType));
+
+        // 检查 `field` 是否为 `List` 类型（支持泛型类型）
+        if (typeUtils.isAssignable(typeUtils.erasure(field.asType()), typeUtils.erasure(listType))) {
+            // 将 `field` 的类型转换为 `DeclaredType`，以便访问泛型参数
+            if (field.asType() instanceof DeclaredType declaredType) {
+                // 获取 `List` 的泛型参数类型，例如 `List<String>` 中的 `String`
+                List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
+                // 检查是否存在泛型参数，并判断是否为 `java.lang.String` 类型
+                return !typeArguments.isEmpty() && typeArguments.get(0).toString().equals("java.lang.String");
+            }
+        }
+        return false;
     }
 
     private String capitalize(String str) {
