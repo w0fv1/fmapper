@@ -67,18 +67,7 @@ public class FieldMapperProcessor extends AbstractProcessor {
                 String capitalizedFieldName = capitalize(fieldName);
                 String mapperInnerClassName = capitalizedFieldName + "FieldMapper";
 
-                TypeName fieldTypeName;
-
-                // 检查字段是否为带有泛型的 List 类型
-                if (isList(field)) {
-                    DeclaredType declaredType = (DeclaredType) field.asType();
-                    // 获取泛型参数，例如 List<String> 中的 String
-                    TypeMirror genericType = declaredType.getTypeArguments().get(0);
-                    fieldTypeName = ParameterizedTypeName.get(ClassName.get(List.class), TypeName.get(genericType));
-                } else {
-                    // 对于非 List 类型，直接使用 ClassName.bestGuess
-                    fieldTypeName = ClassName.bestGuess(field.asType().toString());
-                }
+                TypeName fieldTypeName = getTypeName(field.asType());
 
                 // 使用 JavaPoet 构建嵌套类
                 TypeSpec.Builder innerClassBuilder = TypeSpec.classBuilder(mapperInnerClassName)
@@ -97,12 +86,14 @@ public class FieldMapperProcessor extends AbstractProcessor {
                         .addParameter(fieldTypeName, fieldName);
 
                 if (isList(field)) {
-                    acceptMethodBuilder.addStatement("if (instance.get$L() != null) {\n" +
-                            "    instance.get$L().clear();\n" +
-                            "    instance.get$L().addAll($L);\n" +
-                            "} else {\n" +
-                            "    instance.set$L($L);\n" +
-                            "}", capitalizedFieldName, capitalizedFieldName, capitalizedFieldName, fieldName, capitalizedFieldName, fieldName);
+                    acceptMethodBuilder.addStatement(
+                            """
+                                    if (instance.get$L() != null) {
+                                        instance.get$L().clear();
+                                        instance.get$L().addAll($L);
+                                    } else {
+                                        instance.set$L($L);
+                                    }""", capitalizedFieldName, capitalizedFieldName, capitalizedFieldName, fieldName, capitalizedFieldName, fieldName);
                 } else {
                     acceptMethodBuilder.addStatement("instance.set$L($L)", capitalizedFieldName, fieldName);
                 }
@@ -124,20 +115,28 @@ public class FieldMapperProcessor extends AbstractProcessor {
     }
 
     private boolean isList(VariableElement field) {
-        // 获取 `java.util.List` 的类型
         TypeMirror listType = elementUtils.getTypeElement("java.util.List").asType();
+        return typeUtils.isAssignable(typeUtils.erasure(field.asType()), typeUtils.erasure(listType));
+    }
 
-        // 检查 `field` 是否为 `List` 类型（支持泛型类型）
-        if (typeUtils.isAssignable(typeUtils.erasure(field.asType()), typeUtils.erasure(listType))) {
-            // 将 `field` 的类型转换为 `DeclaredType`，以便访问泛型参数
-            if (field.asType() instanceof DeclaredType declaredType) {
-                // 获取 `List` 的泛型参数类型，例如 `List<String>` 中的 `String`
-                List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
-                // 检查是否存在泛型参数，并判断是否为 `java.lang.String` 类型
-                return !typeArguments.isEmpty() && typeArguments.get(0).toString().equals("java.lang.String");
+    /**
+     * 获取字段的 TypeName，如果是 List 则包含泛型信息。
+     * @param typeMirror 字段的 TypeMirror
+     * @return 字段的 TypeName
+     */
+    private TypeName getTypeName(TypeMirror typeMirror) {
+        if (typeMirror instanceof DeclaredType declaredType) {
+            // 检查是否为带有泛型参数的 List 类型
+            TypeMirror erasedType = typeUtils.erasure(typeMirror);
+            TypeMirror listType = elementUtils.getTypeElement("java.util.List").asType();
+
+            if (typeUtils.isAssignable(erasedType, typeUtils.erasure(listType)) && !declaredType.getTypeArguments().isEmpty()) {
+                TypeMirror genericType = declaredType.getTypeArguments().getFirst();
+                return ParameterizedTypeName.get(ClassName.get(List.class), TypeName.get(genericType));
             }
         }
-        return false;
+        // 对于非 List 类型，直接使用 TypeName.get()
+        return TypeName.get(typeMirror);
     }
 
     private String capitalize(String str) {

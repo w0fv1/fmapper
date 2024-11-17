@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "dev.w0fv1"
-version = "0.0.3"
+version = "0.0.4"
 java.sourceCompatibility = JavaVersion.VERSION_21
 
 repositories {
